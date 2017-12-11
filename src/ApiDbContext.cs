@@ -10,7 +10,7 @@ namespace InstagramNewsFeed
         {
         }
 
-        public DbSet<NewsFeedEntity> NewsFeed { get; set; }
+        public DbSet<NewsFeed> NewsFeed { get; set; }
 
     }
 }

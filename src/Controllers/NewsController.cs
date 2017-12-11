@@ -31,9 +31,9 @@ namespace InstagramNewsFeed.Controllers
         /// <response code="200">Returns the newly-created news</response>
         /// <response code="400">If the item is null</response>    
         [HttpGet]
-        public IEnumerable<NewsFeedEntity> Get()
+        public OkResult Get()
         {
-            return _context.NewsFeed.ToList();
+            return Ok();
         }
 
 

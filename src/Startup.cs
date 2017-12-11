@@ -1,7 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
+using Hangfire;
+using InstaSharper.API;
+using InstaSharper.API.Builder;
+using InstaSharper.Classes;
+using InstaSharper.Logger;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +21,8 @@ namespace InstagramNewsFeed
 {
     public class Startup
     {
+        private static IInstaApi _instaApi;
+
         public Startup(IConfiguration configuration)
         {
             Configuration = configuration;
@@ -25,11 +33,16 @@ namespace InstagramNewsFeed
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddDbContext<ApiDbContext>(options =>
-            {
-                // Use an in-memory database with a randomized database name (for testing)
-                options.UseInMemoryDatabase("TestNewsList");
-            });
+            var connection = @"Server=(localdb)\mssqllocaldb;Database=Instagram;Trusted_Connection=True;ConnectRetryCount=0";
+            services.AddDbContext<ApiDbContext>(options => options.UseSqlServer(connection));
+
+            services.AddHangfire(x => x.UseSqlServerStorage(connection));
+
+            //services.AddDbContext<ApiDbContext>(options =>
+            //{
+            //    // Use an in-memory database with a randomized database name (for testing)
+            //    options.UseInMemoryDatabase("TestNewsList");
+            //});
 
             services.AddMvc();
 
@@ -61,7 +74,7 @@ namespace InstagramNewsFeed
                   .CreateScope())
                 {
                     var dbContext = serviceScope.ServiceProvider.GetService<ApiDbContext>();
-                    AddTestData(dbContext);
+                    //AddTestData(dbContext);
                 }
             }
 
@@ -75,83 +88,60 @@ namespace InstagramNewsFeed
                 c.SwaggerEndpoint("/swagger/v1/swagger.json", "Instagram API V1");
             });
 
+            // Enable Hangfire server
+            app.UseHangfireServer();
+            app.UseHangfireDashboard();
+
+            // create user session data and provide login details
+            var userSession = new UserSessionData
+            {
+                UserName = Configuration["intsagramlogin"] ,
+                Password = Configuration["instagrampass"]
+            };
+            RecurringJob.AddOrUpdate(
+                () => GetNewsAsync(loggerFactory, userSession).Wait() , Cron.MinuteInterval(10));
             app.UseMvc();
         }
-        private static void AddTestData(ApiDbContext context)
+        public static async Task<bool> GetNewsAsync(ILoggerFactory loggerFactory, UserSessionData userSession)
         {
-            // Test data
+             ILogger _logger;
+            _logger = loggerFactory.CreateLogger("Fetch&SaveNews");
+            try
+            {         
+                _logger.LogInformation("Starting demo of InstaSharper project");
+ 
+                // create new InstaApi instance using Builder
+                _instaApi = InstaApiBuilder.CreateBuilder()
+                    .SetUser(userSession)
+                    .UseLogger(new DebugLogger(InstaSharper.Logger.LogLevel.All)) // use logger for requests and debug messages
+                    .SetRequestDelay(TimeSpan.FromSeconds(2))
+                    .Build();
+                // login
+                _logger.LogInformation($"Logging in as { userSession.UserName}");
+                var logInResult = await _instaApi.LoginAsync();
+                if (!logInResult.Succeeded)
+                {
+                    _logger.LogInformation($"Unable to login: {logInResult.Info.Message}");
+                }
+                else
+                {
+                    var userFeed = await _instaApi.GetUserTimelineFeedAsync(5); 
 
-            var conv1 = context.NewsFeed.Add(new Models.NewsFeedEntity
+                }
+            }
+            catch (Exception ex)
             {
-                Id = Guid.Parse("6f1e369b-29ce-4d43-b027-3756f03899a1"),
-                CreatedAt = DateTimeOffset.UtcNow,
-                Data = @"[ 
-                     { 
-                       ""id"":""1234567890123456789_1234567890"", 
-                       ""user"": { ... }, 
-                       ""images"": { 
-                         ""thumbnail"": { ... }, 
-                         ""low_resolution"": { ... }, 
-                         ""standard_resolution"": { ... } 
-                       }, 
-                      ""created_time"": ""1234567890"", 
-                       ""caption"": { 
-                         ""id"":""12345678901234567890"", 
-                         ""text"": ""My text"", 
-                         ""created_time"": ""1234567890"", 
-                         ""from"": { ... } 
-                       }, 
-                       ""user_has_liked"": false, 
-                       ""likes"": { ... }, 
-                       ""tags"": [ ... ], 
-                       ""filter"": ""Normal"", 
-                       ""comments"": { ... }, 
-                       ""type"": ""image"", 
-                       ""link"": ""https://www.instagram.com/p/12345abcdef/"", 
-                       ""location"": null, 
-                       ""attribution"": null, 
-                       ""users_in_photo"": [ ... ] 
-                       }
-                ] 
-                }"
-            }).Entity;
-
-            var conv2 = context.NewsFeed.Add(new Models.NewsFeedEntity
+                _logger.LogError("Error message {ex.Message}", ex.Message);
+            }
+            finally
             {
-                Id = Guid.Parse("2d555f8f-e2a2-461e-b756-1f6d0d254b46"),
-                CreatedAt = DateTimeOffset.UtcNow,
-                Data = @" [ 
-                     { 
-                       ""id"":""1234567890123456789_1234567890"", 
-                       ""user"": { ... }, 
-                       ""images"": { 
-                         ""thumbnail"": { ... }, 
-                         ""low_resolution"": { ... }, 
-                         ""standard_resolution"": { ... } 
-                       }, 
-                      ""created_time"": ""1234567890"", 
-                       ""caption"": { 
-                         ""id"":""12345678901234567890"", 
-                         ""text"": ""My text"", 
-                         ""created_time"": ""1234567890"", 
-                         ""from"": { ... } 
-                       }, 
-                       ""user_has_liked"": false, 
-                       ""likes"": { ... }, 
-                       ""tags"": [ ... ], 
-                       ""filter"": ""Normal"", 
-                       ""comments"": { ... }, 
-                       ""type"": ""image"", 
-                       ""link"": ""https://www.instagram.com/p/12345abcdef/"", 
-                       ""location"": null, 
-                       ""attribution"": null, 
-                       ""users_in_photo"": [ ... ] 
-                     } 
-                ] "
-            }).Entity;
-
-            context.SaveChanges();
-
+                var logoutResult = Task.Run(() => _instaApi.LogoutAsync()).GetAwaiter().GetResult();
+                if (logoutResult.Succeeded) Console.WriteLine("Logout succeed");
+            }
+            return false;
         }
     }
+   
 }
+
+

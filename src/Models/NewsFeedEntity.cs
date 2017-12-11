@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 
 namespace InstagramNewsFeed.Models
 {
-    public class NewsFeedEntity
+    public class NewsFeed
     {
         public Guid Id { get; set; }
 
